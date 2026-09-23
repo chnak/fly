@@ -526,6 +526,12 @@ function startBacktest() {
   backtestStartedAt = Date.now();
   backtestStartIdx = fly.idx;
   fly.phase = 'backtest';
+  // backtest 模式下：clip 负 baseline 到 0，避免算法卡在负 pnl
+  // （live 模式保留原始语义，让 warmup 自身寻找正 baseline）
+  if (fly.lastAcceptedScore !== -Infinity && fly.lastAcceptedScore < 0) {
+    console.log(`[backtest] clip baseline ${fly.lastAcceptedScore.toFixed(0)} → 0 (avoid stuck on negative)`);
+    fly.lastAcceptedScore = 0;
+  }
   console.log(`[backtest] starting  candles=${fly.candles.length - fly.idx}  fast=${CLI.isFast}  evLen=${fly.evLen}`);
   if (CLI.isFast) setImmediate(backtestTick);
   else setTimeout(backtestTick, 200);
