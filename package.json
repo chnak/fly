@@ -1,6 +1,6 @@
 {
   "name": "@chnak/fly",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Trainable readout models on top of the MaleCNS fly-brain connectome for Flappy-like control.",
   "type": "module",
   "main": "./dist/index.js",
