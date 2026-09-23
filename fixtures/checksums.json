@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "generated": "2026-09-23T14:36:16.342Z",
+  "source": "https://github.com/chnak/fly/tree/main/fixtures",
+  "total_size": 57931417,
+  "total_files": 7,
+  "files": [
+    {
+      "path": "brain.json",
+      "size": 243,
+      "sha256": "451c37994ac33e2513f05c1c59a5043c7330dd72798f8f9f321f1de17558ac17"
+    },
+    {
+      "path": "meta.bin",
+      "size": 335232,
+      "sha256": "e80f58ea3faf27366fdda2d8cfe9419f53aa47dc8a56b8f5efc3f00a6dbca252"
+    },
+    {
+      "path": "readout.json",
+      "size": 563,
+      "sha256": "6f34378b7750a0d4564f6e4e7efc95454787174a1169f9dbf4f4b16b7cf5a2f1"
+    },
+    {
+      "path": "readout.trained.json",
+      "size": 950,
+      "sha256": "a8993169c1faff1f075c36d2875608df04723199fe2c2445545f3bf2b27f08e8"
+    },
+    {
+      "path": "readout.trial-and-error.json",
+      "size": 526,
+      "sha256": "8ada3e89c904cd2c67a2718540811628d7318f68403f7d79066d32788798ed42"
+    },
+    {
+      "path": "weights.0.bin",
+      "size": 40000000,
+      "sha256": "7443590f555a5a91cbd8f02886cf3f0f3a0f762add9d3a3151bb58bc35342d76"
+    },
+    {
+      "path": "weights.1.bin",
+      "size": 17593903,
+      "sha256": "44870fad4a3f925b29b3dc3c7016166ffcf39514ba8d8c4b494c81004e7a6adf"
+    }
+  ]
+}

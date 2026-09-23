@@ -1,5 +1,5 @@
 {
-  "name": "fly-brain-train",
+  "name": "@chnak/fly",
   "version": "0.1.0",
   "description": "Trainable readout models on top of the MaleCNS fly-brain connectome for Flappy-like control.",
   "type": "module",
@@ -12,17 +12,22 @@
       "import": "./dist/index.js"
     }
   },
+  "bin": {
+    "fly-fetch": "./dist/cli/fetch-fixtures.js"
+  },
   "files": [
     "dist",
     "README.md",
     "LICENSE"
   ],
+  "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "pnpm run build && pnpm run test",
+    "cli": "node dist/cli/fetch-fixtures.js",
     "examples": "node --experimental-strip-types --no-warnings examples/01-encoder.ts && node --experimental-strip-types --no-warnings examples/02-decoder-policy.ts && node --experimental-strip-types --no-warnings examples/03-persist.ts",
     "example:full": "node --experimental-strip-types --no-warnings examples/04-createTrainer.ts && node --experimental-strip-types --no-warnings examples/05-game-loop.ts && node --experimental-strip-types --no-warnings examples/06-evolve.ts && node --experimental-strip-types --no-warnings examples/07-train-and-save.ts && node --experimental-strip-types --no-warnings examples/08-eval-readout.ts",
     "example:evolve": "node --experimental-strip-types --no-warnings examples/06-evolve.ts",
@@ -30,18 +35,37 @@
     "example:eval": "node --experimental-strip-types --no-warnings examples/08-eval-readout.ts"
   },
   "keywords": [
-    "fly",
+    "fly-brain",
     "neuroscience",
-    "flappy",
-    "reinforcement",
-    "logistic",
     "lif",
-    "connectome"
+    "connectome",
+    "male-cns",
+    "reinforcement-learning",
+    "logistic-regression",
+    "flappy",
+    "neural-decision",
+    "snn",
+    "fixtures",
+    "cli"
   ],
   "engines": {
     "node": ">=18"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": {
+    "name": "chnak"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chnak/fly.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chnak/fly/issues"
+  },
+  "homepage": "https://github.com/chnak/fly#readme",
   "devDependencies": {
     "@types/node": "^26.6.2",
     "typescript": "^5.4.0",

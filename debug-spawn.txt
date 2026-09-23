@@ -1,0 +1,41 @@
+Server: http://127.0.0.1:61622
+
+[child STDOUT] fly-fetch — MaleCNS fixtures downloader for @chnak/fly
+
+[child STDOUT]   target: D:\Date\20260808\fly\test-fetch-debug
+  source: http://127.0.0.1:61622
+
+[server] GET /checksums.json
+[child STDOUT] Manifest: 7 files, 55.25 MB
+[child STDOUT] 
+[child STDOUT] Will download 7 file(s) (55.25 MB):
+[child STDOUT]      243 B  brain.json
+  327.4 KB  meta.bin
+     563 B  readout.json
+     950 B  readout.trained.json
+     526 B  readout.trial-and-error.json
+  38.15 MB  weights.0.bin
+  16.78 MB  weights.1.bin
+
+[child STDOUT]   ↓ brain.json                            243 B ... [server] GET /brain.json
+[child STDOUT] OK
+[child STDOUT]   ↓ meta.bin                           327.4 KB ... [server] GET /meta.bin
+[child STDOUT] OK
+[child STDOUT]   ↓ readout.json                          563 B ... [server] GET /readout.json
+[child STDOUT] OK
+[child STDOUT]   ↓ readout.trained.json                  950 B ... [server] GET /readout.trained.json
+[child STDOUT] OK
+[child STDOUT]   ↓ readout.trial-and-error.json          526 B ... [server] GET /readout.trial-and-error.json
+[child STDOUT] OK
+[child STDOUT]   ↓ weights.0.bin                      38.15 MB ... [server] GET /weights.0.bin
+[child STDOUT] OK
+[child STDOUT]   ↓ weights.1.bin                      16.78 MB ... [server] GET /weights.1.bin
+[child STDOUT] OK
+[child STDOUT] 
+✓ Downloaded 55.25 MB into D:\Date\20260808\fly\test-fetch-debug
+
+Next steps:
+  cd <your-project>
+  npx tsx node_modules/@chnak/fly/examples/04-createTrainer.ts
+
+[child EXIT] code=0 signal=null

@@ -1,0 +1,42 @@
+=== Test 1: --help ===
+OK: [33mtrue[39m
+fly-fetch — download MaleCNS fixtures for @chnak/fly
+
+Usage:
+  npx fly-fetch [options]
+
+...
+  npx fly-fetch --base <mirror-url>   # use a mirror
+
+
+
+=== Test 2: --check (existing ./fixtures) ===
+OK: [33mfalse[39m
+fly-fetch — MaleCNS fixtures downloader for @chnak/fly
+
+  target: D:\Date\20260808\fly\fixtures
+  source: https://raw.githubusercontent.com/chnak/fly/main/fixtures
+  mode:   --check (verify only, no download)
+
+✗ Failed to load manifest: fetch failed
+  Hint: pass --base <url> to use a mirror or fork.
+
+
+=== Test 3: --check on empty ./test-empty-dir ===
+OK: [33mfalse[39m
+fly-fetch — MaleCNS fixtures downloader for @chnak/fly
+
+  target: D:\Date\20260808\fly\test-empty-dir
+  source: https://raw.githubusercontent.com/chnak/fly/main/fixtures
+  mode:   --check (verify only, no download)
+
+✗ Failed to load manifest: HTTP 404 fetching manifest from https://raw.githubusercontent.com/chnak/fly/main/fixtures/checksums.json
+  Hint: pass --base <url> to use a mirror or fork.
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94
+
+
+=== Test 4: invalid flag --bogus ===
+OK (expect false): [33mfalse[39m
+
+✗ Fatal: Unknown flag: --bogus
+

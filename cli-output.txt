@@ -1,0 +1,32 @@
+STDOUT:
+fly-fetch — download MaleCNS fixtures for @chnak/fly
+
+Usage:
+  npx fly-fetch [options]
+
+Options:
+  --to <dir>, -o     Target directory (default: ./fixtures)
+  --check            Verify existing files; do not download
+  --force            Re-download files even if they already exist
+  --yes, -y          Skip confirmation prompt
+  --base <url>       Override download base URL
+  --verbose, -v      Print progress as each file is fetched
+  --help, -h         Show this help
+
+Files downloaded (from https://github.com/chnak/fly/tree/main/fixtures):
+  brain.json                       243 B
+  meta.bin                       335.2 KB
+  readout.json                     563 B
+  readout.trained.json             950 B
+  readout.trial-and-error.json     526 B
+  weights.0.bin                  40.00 MB
+  weights.1.bin                  17.59 MB
+  ----------------------------------------
+  Total                          55.25 MB across 7 files
+
+Examples:
+  npx fly-fetch                       # download to ./fixtures
+  npx fly-fetch --to ./data           # download to ./data
+  npx fly-fetch --check               # verify existing ./fixtures
+  npx fly-fetch --base <mirror-url>   # use a mirror
+

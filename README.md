@@ -1,4 +1,4 @@
-# fly-brain-train · 中文文档
+# @chnak/fly · 中文文档
 
 > 一个 **TypeScript 训练库**：把果蝇脑连接组（MaleCNS）当作 1300 万突触的"感知处理器"，在你的游戏/任务里跑 LIF 仿真，再用 logistic 回归在上面训练一个**小型读出层**（12 个 DN 神经元的加权 + sigmoid），做"现在该不该 flap"的二分类。
 
@@ -47,10 +47,10 @@
 
 ```bash
 # 推荐 pnpm
-pnpm add fly-brain-train
+pnpm add @chnak/fly
 
 # 或 npm
-npm install fly-brain-train
+npm install @chnak/fly
 ```
 
 构建 + 跑测试 + 类型检查：
@@ -83,7 +83,7 @@ fixtures/
 ### 3.1 跑起来
 
 ```bash
-cd fly-brain-train
+cd fly
 pnpm examples          # 跑 01-encoder / 02-decoder-policy / 03-persist（无需 fixtures）
 pnpm example:full      # 跑 04-createTrainer（用 ./fixtures/）
 pnpm test              # 22/22 测试，含 createTrainer 集成测试
@@ -186,7 +186,7 @@ pnpm examples
 最小训练代码（完整可运行版见 `examples/04-createTrainer.ts`）：
 
 ```ts
-import { createTrainer, modelToJson } from 'fly-brain-train';
+import { createTrainer, modelToJson } from '@chnak/fly';
 import { writeFile, readFile } from 'node:fs/promises';
 
 const manifest = JSON.parse(await readFile('./fixtures/brain.json', 'utf8'));
@@ -255,7 +255,7 @@ const { model, samples, loss } = await fastTrain(simulator, baseModel, {
 ### 7.2 `onlineTrain(sim, model, features, label)` —— 在线学习
 
 ```ts
-import { onlineTrain } from 'fly-brain-train';
+import { onlineTrain } from '@chnak/fly';
 
 let model = baseModel;
 for (let step = 0; step < 10000; step++) {
@@ -440,7 +440,7 @@ console.log(JSON.stringify(maleCNS.exportManifest()));
 ### 12.1 自己灌刺激（绕开 Flappy encoder）
 
 ```ts
-import { Simulator } from 'fly-brain-train';
+import { Simulator } from '@chnak/fly';
 
 const sim = new Simulator(brain, DEFAULT_READOUT.features);
 sim.init(42);
@@ -492,7 +492,7 @@ const lc4L = brain.cells('LC4', 'L');
 60 fps 游戏，1 个仿真步 = 1 个 game frame：
 
 ```ts
-import { createTrainer, inferReadout, trainedFlapRequest } from 'fly-brain-train';
+import { createTrainer, inferReadout, trainedFlapRequest } from '@chnak/fly';
 
 const trainer = await createTrainer({ /* fixtures */ });
 const { model } = await trainer.fastTrain();
@@ -542,7 +542,7 @@ function gameLoop(state: FlappyState) {
 
 - 这是**库 bug**：逐文件 gunzip。但官方导出的 weights parts 是单 gzip 流的两段，必须整体 gunzip
 - 0.1.1+ 已修，新版用 `readAllWeightsParts()` 拼接 + 整体 gunzip
-- 如果还在旧版，先 `pnpm update fly-brain-train`，或手动把 parts 拼成单个 gzip 文件再加载
+- 如果还在旧版，先 `pnpm update @chnak/fly`，或手动把 parts 拼成单个 gzip 文件再加载
 
 ### 14.5 想关掉硬护栏自己跑
 
