@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "kind": "logistic-regression",
+  "connectomeFrozen": true,
+  "features": ["TARGET_DN L", "TARGET_DN R", "LOOM_DN L", "LOOM_DN R", "ESCAPE_DN L", "ESCAPE_DN R", "DNae002 L", "DNae002 R", "DNg111 L", "DNg111 R", "DNp01 L", "DNp01 R"],
+  "weights": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "bias": -0.35,
+  "threshold": 0.42,
+  "mean": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "scale": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  "teacher": "bird below target and descending",
+  "note": "Only this readout is fitted; MaleCNS connectivity is frozen."
+}

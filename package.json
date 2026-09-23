@@ -1,0 +1,50 @@
+{
+  "name": "fly-brain-train",
+  "version": "0.1.0",
+  "description": "Trainable readout models on top of the MaleCNS fly-brain connectome for Flappy-like control.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm run build && pnpm run test",
+    "examples": "node --experimental-strip-types --no-warnings examples/01-encoder.ts && node --experimental-strip-types --no-warnings examples/02-decoder-policy.ts && node --experimental-strip-types --no-warnings examples/03-persist.ts",
+    "example:full": "node --experimental-strip-types --no-warnings examples/04-createTrainer.ts && node --experimental-strip-types --no-warnings examples/05-game-loop.ts && node --experimental-strip-types --no-warnings examples/06-evolve.ts && node --experimental-strip-types --no-warnings examples/07-train-and-save.ts && node --experimental-strip-types --no-warnings examples/08-eval-readout.ts",
+    "example:evolve": "node --experimental-strip-types --no-warnings examples/06-evolve.ts",
+    "example:train": "node --experimental-strip-types --no-warnings examples/07-train-and-save.ts",
+    "example:eval": "node --experimental-strip-types --no-warnings examples/08-eval-readout.ts"
+  },
+  "keywords": [
+    "fly",
+    "neuroscience",
+    "flappy",
+    "reinforcement",
+    "logistic",
+    "lif",
+    "connectome"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
