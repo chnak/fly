@@ -21,6 +21,7 @@
 13. [嵌入游戏循环](#13-嵌入游戏循环)
 14. [调试与常见问题](#14-调试与常见问题)
 15. [API 参考表](#15-api-参考表)
+16. [`fly-fetch` CLI — 下载 fixtures](#16-fly-fetch-cli--下载-fixtures)
 
 ---
 
@@ -91,7 +92,15 @@ pnpm test              # 22/22 测试，含 createTrainer 集成测试
 
 ### 3.2 如果 fixtures 不见了
 
-如果 `fixtures/` 目录缺失或损坏：
+如果 `fixtures/` 目录缺失或损坏，**推荐用 `fly-fetch` CLI 一键恢复**（详见 [§16](#16-fly-fetch-cli--下载-fixtures)）：
+
+```bash
+# 安装包后（或者在仓库内 pnpm install）执行
+npx fly-fetch
+# → 下载 7 个文件 / 55.25 MB 到 ./fixtures/
+```
+
+如果想手动恢复：
 
 ```bash
 # 从同目录的 fly-flappy 仓库恢复
@@ -569,6 +578,185 @@ function gameLoop(state: FlappyState) {
 | `training`        | `fastTrain`, `onlineTrain`, `applyModel`, `FastTrainOptions`, `FastTrainResult` |
 | `persist`         | `validateModel`, `cloneModel`, `freshModel`, `modelToJson`, `modelFromJson` |
 | `createTrainer`   | `createTrainer`（默认导出）, `CreateTrainerOptions`, `Trainer` |
+
+---
+
+## 16. `fly-fetch` CLI — 下载 fixtures
+
+`@chnak/fly` 包提供一个独立二进制 `fly-fetch`，用来从 GitHub raw 仓库下载 MaleCNS fixtures（脑连接组 + manifest + 预训练读出模型）。
+
+### 16.1 安装后调用
+
+```bash
+# npx（推荐，无需全局安装）
+npx fly-fetch
+
+# 或全局安装后直接调
+pnpm add -g @chnak/fly
+fly-fetch
+
+# 或仓库内（pnpm install 后）
+pnpm cli
+```
+
+### 16.2 全部参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--to <dir>` | `./fixtures` | 目标目录（不存在则创建） |
+| `--base <url>` | `https://raw.githubusercontent.com/chnak/fly/main/fixtures` | 镜像源 URL |
+| `--check` | `false` | 只校验现有文件是否完整，不下载 |
+| `--force` | `false` | 即使已存在也重新下载（跳过 skip） |
+| `--yes` | `false` | 跳过交互式确认 |
+| `--verbose` | `false` | 显示每个文件进度 + 详细日志 |
+| `--help` | — | 打印帮助并退出 |
+
+所有参数都可以组合。
+
+### 16.3 常用场景
+
+**首次下载**（生成 manifest + 全部 7 个 fixture）：
+
+```bash
+npx fly-fetch --to ./fixtures --yes
+```
+
+输出：
+
+```
+fly-fetch v0.1.0
+target : ./fixtures
+base   : https://raw.githubusercontent.com/chnak/fly/main/fixtures
+
+Found manifest with 7 entries (55.25 MB total).
+Need to download 7 file(s).
+
+✔ brain.json             243 B
+✔ meta.bin               335.2 KB
+✔ readout.json           563 B
+✔ readout.trial-and-error.json    526 B
+✔ readout.trained.json   950 B
+✔ weights.0.bin          40 MB
+✔ weights.1.bin          17.59 MB
+
+Done: 7 file(s) verified in 8.3s
+```
+
+**校验已有目录**（不下载任何东西，只查 sha256）：
+
+```bash
+npx fly-fetch --check
+# 所有文件完整 → exit 0
+# 缺文件 / sha256 不匹配 → exit 1
+```
+
+适合接入 CI：
+
+```yaml
+# GitHub Actions 示例
+- run: npx fly-fetch --check
+```
+
+**强制重新下载**（文件存在但 sha256 不匹配、或你想刷新）：
+
+```bash
+npx fly-fetch --force
+```
+
+**换镜像源**（Gitee、自建、公司内网）：
+
+```bash
+npx fly-fetch --base https://gitee.com/chnak/fly/raw/main/fixtures
+```
+
+`--base` 必须指向一个目录，目录里要有 `checksums.json`（同结构 manifest）。CLI 会拉 `checksums.json`，后续所有文件都从这个 base 派生。
+
+**详细进度**：
+
+```bash
+npx fly-fetch --verbose
+# 会显示每个文件 HTTP 状态、字节数、sha256 中间值
+```
+
+### 16.4 它做什么 / 不做什么
+
+**做**：
+
+1. 拉 `<base>/checksums.json`，得到 7 个文件清单 + sha256 + size
+2. 对目标目录预扫——已下载 + sha256 匹配的跳过
+3. 顺序下载缺失 / 不匹配的文件（带 timeout + retry）
+4. 写到 `<dest>/<filename>.partial`，下载完成 + sha256 校验通过后原子重命名为正式名
+5. 总体进度 + 颜色化输出
+6. 退出码：`0` 全部 OK / `1` 有错误 / `2` 参数错误
+
+**不做**：
+
+- ❌ 不会修改仓库外文件
+- ❌ 不会运行 npm install / tsc
+- ❌ 不会删除目标目录里不属于 manifest 的文件
+- ❌ 不会验证文件**内容**（只校验 sha256）
+
+### 16.5 退出码
+
+| 码 | 含义 |
+|----|------|
+| `0` | 成功：所有文件已下载 / 已校验 / 无需操作 |
+| `1` | 至少一个文件下载失败、sha256 不匹配、目录无法创建 |
+| `2` | 参数解析错误（未知 flag、`--to` 路径是文件而非目录） |
+
+### 16.6 完整文件清单
+
+CLI 下载的 7 个文件全部在内（合计 **55.25 MB**）：
+
+| 文件 | 大小 | 内容 |
+|------|------|------|
+| `brain.json` | 243 B | `BrainManifest`（神经元/突触数、文件清单、压缩误差） |
+| `meta.bin` | 335.2 KB | gzipped FLYM 神经元元数据 |
+| `readout.json` | 563 B | 默认空骨架读出模型（weights=0） |
+| `readout.trial-and-error.json` | 526 B | 试错调参产物 |
+| `readout.trained.json` | 950 B | §6 训练流程的典型输出（weights 已学到非零值） |
+| `weights.0.bin` | 40 MB | gzip 权重流分段 1 |
+| `weights.1.bin` | 17.59 MB | gzip 权重流分段 2 |
+
+`weights.0.bin` + `weights.1.bin` 拼起来是单个 gzip 流 → 整体 gunzip 得到 62 MB 的 CSR 稀疏权重矩阵（详见 [§11](#11-connectome-文件格式与加载原理)）。
+
+### 16.7 在 CI / Docker 里用
+
+```dockerfile
+# Dockerfile 示例
+FROM node:20-slim
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN npm install -g pnpm && pnpm install --prod
+# 首启动拉 fixtures，之后只校验
+RUN npx fly-fetch --to ./fixtures --yes
+COPY . .
+CMD ["node", "dist/index.js"]
+```
+
+### 16.8 调试
+
+```bash
+# 网络有问题？开 verbose
+npx fly-fetch --verbose --force
+
+# 想换镜像？比如本地 nginx
+npx fly-fetch --base http://localhost:8080/fixtures --verbose
+
+# 只校验，不下载
+npx fly-fetch --check --verbose
+```
+
+常见错误：
+
+- **`ECONNREFUSED`**：base URL 不通，或本地 server 没起
+- **`TimeoutError`**：网络太慢——可以加大 timeout（用 `--verbose` 看每文件耗时）
+- **`sha256 mismatch`**：本地文件损坏——加 `--force` 重下
+
+### 16.9 源码
+
+- CLI 源码：`src/cli/fetch-fixtures.ts`（单文件 ~380 行，纯 Node ≥ 18 + `http`/`https` 模块，**零依赖**）
+- manifest：`fixtures/checksums.json`（用 `scripts/gen-checksums.cjs` 重新生成）
 
 ---
 

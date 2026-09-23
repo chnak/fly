@@ -1,5 +1,5 @@
-// scripts/e2e-cli.cjs — full E2E test of fly-fetch CLI without needing GitHub
-const { execFileSync, spawnSync } = require('child_process');
+// scripts/e2e-cli.cjs — full E2E test of fly-fetch CLI (async)
+const { spawn } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -8,110 +8,113 @@ const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
 const TEST_DIR = path.resolve(__dirname, '..', 'test-fetch-tmp');
 const CLI_PATH = path.resolve(__dirname, '..', 'dist', 'cli', 'fetch-fixtures.js');
 
-console.log('=== E2E test of fly-fetch CLI ===\n');
+function runCli(args, baseUrl) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [
+      CLI_PATH, ...args, '--base', baseUrl
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
-// 1. Start a local HTTP server serving the fixtures dir
+    let stdout = '', stderr = '';
+    child.stdout.on('data', d => stdout += d);
+    child.stderr.on('data', d => stderr += d);
+    child.on('exit', code => resolve({ code, stdout, stderr }));
+
+    setTimeout(() => { child.kill(); resolve({ code: -1, stdout, stderr, killed: true }); }, 120000);
+  });
+}
+
 const server = http.createServer((req, res) => {
-  let urlPath = decodeURIComponent(req.url.split('?')[0]);
-  if (urlPath === '/') urlPath = '/checksums.json';
-  const filePath = path.join(FIXTURES_DIR, urlPath.replace(/^\/+/, ''));
-  if (!filePath.startsWith(FIXTURES_DIR)) {
-    res.writeHead(403);
-    return res.end('forbidden');
-  }
+  const urlPath = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '');
+  const filePath = path.join(FIXTURES_DIR, urlPath);
   fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404);
-      return res.end('not found');
-    }
-    res.writeHead(200, { 'content-type': 'application/octet-stream' });
-    res.end(data);
+    if (err) { res.writeHead(404); return res.end('not found'); }
+    res.writeHead(200); res.end(data);
   });
 });
 
-server.listen(0, '127.0.0.1', () => {
+server.listen(0, '127.0.0.1', async () => {
   const port = server.address().port;
   const baseUrl = `http://127.0.0.1:${port}`;
-  console.log(`Local server: ${baseUrl}\n`);
+  console.log(`=== E2E test of fly-fetch CLI ===\nLocal server: ${baseUrl}\n`);
 
-  function run(args, opts = {}) {
-    try {
-      const out = execFileSync(process.execPath, [CLI_PATH, ...args], {
-        encoding: 'utf8',
-        timeout: 60000,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        cwd: path.resolve(__dirname, '..')
-      });
-      return { ok: true, out };
-    } catch (e) {
-      return { ok: false, out: (e.stdout || '') + (e.stderr || ''), code: e.status };
-    }
-  }
-
-  // Clean test dir
   if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true, force: true });
   fs.mkdirSync(TEST_DIR, { recursive: true });
 
-  // Test A: --check on empty dir
-  console.log('--- Test A: --check on empty dir ---');
-  let r = run(['--check', '--to', TEST_DIR, '--base', baseUrl]);
-  console.log('  ok:', r.ok, '(expect false — files missing)');
-  console.log('  exit:', r.code);
-  console.log(r.out.split('\n').map(l => '  | ' + l).join('\n'));
-  console.log();
-
-  // Test B: full download
-  console.log('--- Test B: full download ---');
-  r = run(['--yes', '--to', TEST_DIR, '--base', baseUrl]);
-  console.log('  ok:', r.ok, '(expect true)');
-  console.log(r.out.split('\n').slice(0, 25).map(l => '  | ' + l).join('\n'));
-  console.log('  ...');
-  console.log();
-
-  // Test C: verify size
-  console.log('--- Test C: verify downloaded files ---');
   const expected = [
     'brain.json', 'meta.bin', 'readout.json', 'readout.trained.json',
     'readout.trial-and-error.json', 'weights.0.bin', 'weights.1.bin'
   ];
-  let allOk = true;
+
+  let passed = 0, failed = 0;
+
+  // Test A: --check on empty dir
+  console.log('--- Test A: --check on empty dir ---');
+  let r = await runCli(['--check', '--to', TEST_DIR], baseUrl);
+  console.log(`  exit code: ${r.code} (expect 1)`);
+  const aOk = r.code === 1;
+  console.log(`  ${aOk ? '✓' : '✗'} ${aOk ? 'PASS' : 'FAIL'}\n`);
+  if (aOk) passed++; else failed++;
+
+  // Test B: full download
+  console.log('--- Test B: full download (--yes) ---');
+  r = await runCli(['--yes', '--to', TEST_DIR], baseUrl);
+  console.log(`  exit code: ${r.code} (expect 0)`);
+  const dlLines = r.stdout.split('\n').filter(l => l.startsWith('  ↓')).length;
+  console.log(`  downloaded: ${dlLines} files (expect 7)`);
+  const bOk = r.code === 0 && dlLines === 7;
+  console.log(`  ${bOk ? '✓' : '✗'} ${bOk ? 'PASS' : 'FAIL'}\n`);
+  if (bOk) passed++; else failed++;
+
+  // Test C: verify file sizes + sha256
+  console.log('--- Test C: verify sizes + sha256 ---');
+  let cOk = true;
+  const crypto = require('crypto');
   for (const f of expected) {
-    const got = fs.statSync(path.join(TEST_DIR, f)).size;
+    const p = path.join(TEST_DIR, f);
+    if (!fs.existsSync(p)) { console.log(`  ✗ missing ${f}`); cOk = false; continue; }
+    const got = fs.statSync(p).size;
     const expSize = fs.statSync(path.join(FIXTURES_DIR, f)).size;
-    const ok = got === expSize;
-    if (!ok) allOk = false;
-    console.log(`  ${ok ? '✓' : '✗'}  ${f.padEnd(34)} ${String(got).padStart(10)} / ${expSize}`);
+    const gotSha = crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+    const expSha = crypto.createHash('sha256').update(fs.readFileSync(path.join(FIXTURES_DIR, f))).digest('hex');
+    const ok = got === expSize && gotSha === expSha;
+    if (!ok) cOk = false;
+    console.log(`  ${ok ? '✓' : '✗'} ${f.padEnd(34)} ${String(got).padStart(10)} B  sha=${gotSha.slice(0,12)}…`);
   }
-  console.log();
-  console.log(allOk ? '  ✓ all sizes match' : '  ✗ SIZE MISMATCH');
-  console.log();
+  console.log(`  ${cOk ? '✓ PASS' : '✗ FAIL'}\n`);
+  if (cOk) passed++; else failed++;
 
   // Test D: --check on downloaded dir
   console.log('--- Test D: --check on downloaded dir ---');
-  r = run(['--check', '--to', TEST_DIR, '--base', baseUrl]);
-  console.log('  ok:', r.ok, '(expect true)');
-  console.log(r.out);
-  console.log();
+  r = await runCli(['--check', '--to', TEST_DIR], baseUrl);
+  console.log(`  exit code: ${r.code} (expect 0)`);
+  const dOk = r.code === 0;
+  console.log(`  ${dOk ? '✓' : '✗'} ${dOk ? 'PASS' : 'FAIL'}\n`);
+  if (dOk) passed++; else failed++;
 
-  // Test E: re-download (should skip)
-  console.log('--- Test E: re-download (no --force, should skip) ---');
-  r = run(['--yes', '--to', TEST_DIR, '--base', baseUrl]);
-  console.log('  ok:', r.ok, '(expect true)');
-  const skipLine = r.out.split('\n').find(l => l.includes('Nothing to do'));
-  console.log('  skip msg:', skipLine || '(NOT FOUND)');
-  console.log();
+  // Test E: re-download (no --force, should skip)
+  console.log('--- Test E: re-download (no --force) ---');
+  r = await runCli(['--yes', '--to', TEST_DIR], baseUrl);
+  const skipLine = r.stdout.split('\n').find(l => l.includes('Nothing to do'));
+  const eOk = r.code === 0 && !!skipLine;
+  console.log(`  exit code: ${r.code} (expect 0)`);
+  console.log(`  skip msg: ${skipLine ? 'present' : 'MISSING'}`);
+  console.log(`  ${eOk ? '✓' : '✗'} ${eOk ? 'PASS' : 'FAIL'}\n`);
+  if (eOk) passed++; else failed++;
 
   // Test F: --force re-download
   console.log('--- Test F: --force re-download ---');
-  r = run(['--yes', '--force', '--to', TEST_DIR, '--base', baseUrl]);
-  console.log('  ok:', r.ok, '(expect true)');
-  const dlLines = r.out.split('\n').filter(l => l.startsWith('  ↓')).length;
-  console.log(`  downloaded: ${dlLines} files (expect 7)`);
-  console.log();
+  r = await runCli(['--yes', '--force', '--to', TEST_DIR], baseUrl);
+  const dlLines2 = r.stdout.split('\n').filter(l => l.startsWith('  ↓')).length;
+  const fOk = r.code === 0 && dlLines2 === 7;
+  console.log(`  exit code: ${r.code} (expect 0)`);
+  console.log(`  downloaded: ${dlLines2} files (expect 7)`);
+  console.log(`  ${fOk ? '✓' : '✗'} ${fOk ? 'PASS' : 'FAIL'}\n`);
+  if (fOk) passed++; else failed++;
 
-  // Cleanup
   fs.rmSync(TEST_DIR, { recursive: true, force: true });
   server.close();
 
-  console.log('=== E2E complete ===');
+  console.log('=== Summary ===');
+  console.log(`  ${passed} passed, ${failed} failed`);
+  process.exit(failed === 0 ? 0 : 1);
 });

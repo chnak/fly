@@ -5,3 +5,7 @@ dist
 coverage
 .vitest
 test/fixtures/mini-maleconnectome.json
+e2e-output.txt
+help-out.txt
+test-fetch-tmp/
+test-fetch-debug/
