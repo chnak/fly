@@ -8,6 +8,7 @@
     // 用法：
     //   node --experimental-strip-types --no-warnings examples/09-verify.ts
     //   N_GAMES=100 node --experimental-strip-types --no-warnings examples/09-verify.ts
+//   MODEL_PATH=fixtures/readout.trial-and-error.json node --experimental-strip-types --no-warnings examples/09-verify.ts
     
     import { readFile } from 'node:fs/promises';
     import { resolve, dirname } from 'node:path';
@@ -17,7 +18,7 @@
     
     const here = dirname(fileURLToPath(import.meta.url));
     const fixturesDir = process.env.FIXTURES_DIR ?? resolve(here, '..', 'fixtures');
-    const modelPath = resolve(fixturesDir, 'readout.trained.json');
+    const modelPath = process.env.MODEL_PATH ?? resolve(fixturesDir, 'readout.trained.json');
     
     const N = Number(process.env.N_GAMES ?? 50);
     
@@ -35,7 +36,8 @@
       seed: 1
     });
     
-    const trained = await modelFromJson(await readFile(modelPath, 'utf8'));
+    // 从 MODEL_PATH（默认 readout.trained.json）加载候选模型，与基线对照
+const trained = await modelFromJson(await readFile(modelPath, 'utf8'));
     const untrained = freshModel(trainer.features);
     
     console.log(`已训模型: 权重前4位=[${trained.weights.slice(0, 4).map((x) => x.toFixed(2)).join(',')}]... 偏置=${trained.bias.toFixed(2)} 阈值=${trained.threshold.toFixed(2)}`);

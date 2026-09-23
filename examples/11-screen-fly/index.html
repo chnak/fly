@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+    <meta charset="UTF-8">
+    <title>蝇脑 vs 鼠标 — Hill Climbing 自学习</title>
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; font-family: 'Consolas', 'Monaco', monospace; }
+      body { display: flex; align-items: center; justify-content: center; }
+      #wrap { position: relative; }
+      canvas { display: block; background: radial-gradient(ellipse at center, #1a2030 0%, #000 80%); cursor: none; border: 1px solid #333; }
+      .panel { position: fixed; background: rgba(0,0,0,0.65); color: #cfc; padding: 10px 14px; font-size: 12px; line-height: 1.55; border: 1px solid #2a2; border-radius: 4px; pointer-events: none; user-select: none; }
+      #hud { top: 10px; left: 10px; }
+      #stats { top: 10px; right: 10px; text-align: right; }
+      #help { bottom: 10px; left: 10px; max-width: 460px; }
+      #help b { color: #ff6; }
+      .panic { color: #f55 !important; }
+      .calm   { color: #5f5 !important; }
+      #title { color: #ff6; font-weight: bold; margin-bottom: 4px; font-size: 14px; }
+      #controls { position: fixed; bottom: 10px; right: 10px; background: rgba(0,0,0,0.65); padding: 10px; border: 1px solid #2a2; border-radius: 4px; font-size: 12px; color: #cfc; pointer-events: auto; }
+      #controls button { background: #030; color: #cfc; border: 1px solid #2a2; padding: 4px 10px; margin: 2px; cursor: pointer; font-family: inherit; font-size: 12px; }
+      #controls button:hover { background: #050; }
+      #controls button:active { background: #060; }
+      #controls input[type=number] { width: 60px; background: #000; color: #cfc; border: 1px solid #2a2; padding: 2px 4px; font-family: inherit; }
+      #graphBox { position: fixed; right: 10px; top: 220px; background: rgba(0,0,0,0.65); padding: 6px; border: 1px solid #2a2; border-radius: 4px; }
+      #graph { display: block; background: #000; }
+    </style>
+    </head>
+    <body>
+    <div id="wrap">
+      <canvas id="canvas" width="1200" height="700"></canvas>
+    </div>
+    <div id="hud" class="panel">
+      <div id="title">蝇脑 v0.1 — Hill Climbing</div>
+      <div>状态: <span id="state" class="calm">闲逛</span></div>
+      <div>距鼠标: <span id="dist">0</span> px</div>
+      <div>恐慌度: <span id="panic">0.000</span></div>
+      <div>阈值: <span id="thr">0.500</span></div>
+    </div>
+    <div id="stats" class="panel">
+      <div style="color:#ff6;font-weight:bold;margin-bottom:4px;">学习进度</div>
+      <div>代: <span id="gen">0</span></div>
+      <div>本代分: <span id="score">0.00</span></div>
+      <div>历史最高: <span id="best">-INF</span></div>
+      <div>接受/尝试: <span id="acc">0/0</span></div>
+      <div>σ: <span id="sigma">0.500</span></div>
+    </div>
+    <div id="help" class="panel">
+      <div style="color:#ff6;font-weight:bold;margin-bottom:4px;">玩法</div>
+      <div>移动 <b>鼠标</b> 当作「手」</div>
+      <div>让苍蝇 <b>逃走</b>：试着用鼠标接近它</div>
+      <div>苍蝇 <b>自学习</b> 何时该逃 (Hill Climbing)</div>
+      <div>每 <b>5 秒一代</b>，调整权重以 <b>避免被你抓住</b></div>
+    </div>
+    <div id="controls">
+      <div><b>控制</b></div>
+      <button id="btnReset">重置脑</button>
+      <button id="btnSave">保存脑</button>
+      <button id="btnLoad">加载脑</button>
+      <div style="margin-top:6px;">
+        代长(秒): <input id="inpEpLen" type="number" value="5" min="1" max="60">
+      </div>
+      <div>
+        σ 初值: <input id="inpSigma" type="number" value="0.5" step="0.1" min="0.05" max="2">
+      </div>
+    </div>
+    <div id="graphBox" class="panel">
+      <div style="color:#ff6;font-weight:bold;font-size:12px;margin-bottom:4px;">历史分数</div>
+      <canvas id="graph" width="240" height="120"></canvas>
+    </div>
+    <script>
+    'use strict';
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const graphCanvas = document.getElementById('graph');
+    const gctx = graphCanvas.getContext('2d');
+    const FEATURE_NAMES = [
+      'TARGET_DN L','TARGET_DN R',
+      'LOOM_DN L','LOOM_DN R',
+      'ESCAPE_DN L','ESCAPE_DN R',
+      'DNae002 L','DNae002 R',
+      'DNg111 L','DNg111 R',
+      'DNp01 L','DNp01 R'
+    ];
+    function freshModel(sigma) {
+      sigma = sigma || 0.3;
+      return {
+        weights: Array.from({length: 12}, function() { return (Math.random()*2-1) * sigma; }),
+        bias: -0.35 + (Math.random()*2-1) * sigma * 0.5,
+        threshold: 0.5 + (Math.random()*2-1) * sigma * 0.1,
+      };
+    }
+    function sigmoid(z) { return 1 / (1 + Math.exp(-z)); }
+    function infer(model, features) {
+      let z = model.bias;
+      for (let i = 0; i < model.weights.length; i++) z += model.weights[i] * features[i];
+      return sigmoid(z);
+    }
+    function mutate(parent, sigma) {
+      return {
+        weights: parent.weights.map(function(w) { return w + (Math.random()*2-1) * sigma; }),
+        bias: parent.bias + (Math.random()*2-1) * sigma * 0.4,
+        threshold: Math.max(0.15, Math.min(0.85, parent.threshold + (Math.random()*2-1) * sigma * 0.15)),
+      };
+    }
+    function cloneModel(m) {
+      return { weights: m.weights.slice(), bias: m.bias, threshold: m.threshold };
+    }
+    const HIT_RADIUS = 26;
+    let EPISODE_FRAMES = 300;
+    const FLY_MAX_SPEED = 12;
+    const FLY_ACCEL = 2.6;
+    const state = {
+      mouse: { x: canvas.width/2, y: canvas.height/2 },
+      mousePrev: { x: canvas.width/2, y: canvas.height/2 },
+      mouseVel: { x: 0, y: 0 },
+      fly: { x: canvas.width/2, y: canvas.height/2 },
+      flyVel: { x: 0, y: 0 },
+      lastDist: Infinity,
+      episodeScore: 0,
+      episodeFrames: 0,
+    };
+    let champion = null, challenger = null, challengerScore = 0, lastAcceptedScore = -Infinity;
+    const stats = {
+      generation: 0, bestScore: -Infinity, totalTries: 0, accepts: 0,
+      history: [], sigma: 0.5, epLen: 5,
+    };
+    function resetFly() {
+      state.fly.x = canvas.width * (0.3 + Math.random() * 0.4);
+      state.fly.y = canvas.height * (0.3 + Math.random() * 0.4);
+      state.flyVel.x = 0; state.flyVel.y = 0;
+      state.lastDist = Infinity;
+      state.episodeScore = 0; state.episodeFrames = 0;
+    }
+    function startNewChallenger() {
+      const sigma = stats.sigma * Math.pow(0.96, stats.generation);
+      challenger = mutate(champion, sigma);
+      challengerScore = 0;
+    }
+    function initBrain() {
+      champion = freshModel(0.3);
+      challenger = cloneModel(champion);
+      challengerScore = 0; lastAcceptedScore = -Infinity;
+      stats.generation = 0; stats.bestScore = -Infinity;
+      stats.totalTries = 0; stats.accepts = 0; stats.history = [];
+      resetFly();
+    }
+    function computeFeatures() {
+      const dx = (state.mouse.x - state.fly.x) / canvas.width;
+      const dy = (state.mouse.y - state.fly.y) / canvas.height;
+      const dist = Math.hypot(state.mouse.x - state.fly.x, state.mouse.y - state.fly.y);
+      const closingSpeed = state.lastDist === Infinity ? 0 : (state.lastDist - dist);
+      const fvx = state.flyVel.x / FLY_MAX_SPEED;
+      return [
+        Math.max(0, -dx), Math.max(0, dx),
+        Math.max(0, -closingSpeed) * Math.max(0, -dx) * 0.05,
+        Math.max(0, -closingSpeed) * Math.max(0,  dx) * 0.05,
+        Math.max(0, (dist - 250) / 250) * Math.max(0, -dx),
+        Math.max(0, (dist - 250) / 250) * Math.max(0,  dx),
+        Math.max(0, -dy), Math.max(0, dy),
+        Math.max(0, -state.mouseVel.y) * Math.max(0, -dy) * 0.05,
+        Math.max(0,  state.mouseVel.y) * Math.max(0,  dy) * 0.05,
+        Math.max(0, -fvx), Math.max(0, fvx),
+      ];
+    }
+    function step(features, panicOut) {
+      const useModel = challenger || champion;
+      const p = infer(useModel, features);
+      panicOut.value = p;
+      const dx = state.mouse.x - state.fly.x;
+      const dy = state.mouse.y - state.fly.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      if (p >= useModel.threshold) {
+        const awayX = -dx / dist;
+        const awayY = -dy / dist;
+        state.flyVel.x += awayX * FLY_ACCEL * (p * 2);
+        state.flyVel.y += awayY * FLY_ACCEL * (p * 2);
+      } else {
+        state.flyVel.x += (Math.random() - 0.5) * 0.5;
+        state.flyVel.y += (Math.random() - 0.5) * 0.5;
+      }
+      const speed = Math.hypot(state.flyVel.x, state.flyVel.y);
+      if (speed > FLY_MAX_SPEED) {
+        state.flyVel.x = state.flyVel.x / speed * FLY_MAX_SPEED;
+        state.flyVel.y = state.flyVel.y / speed * FLY_MAX_SPEED;
+      }
+      state.flyVel.x *= 0.93; state.flyVel.y *= 0.93;
+      state.fly.x += state.flyVel.x; state.fly.y += state.flyVel.y;
+      if (state.fly.x < 15) { state.fly.x = 15; state.flyVel.x = Math.abs(state.flyVel.x) * 0.5; }
+      if (state.fly.x > canvas.width - 15) { state.fly.x = canvas.width - 15; state.flyVel.x = -Math.abs(state.flyVel.x) * 0.5; }
+      if (state.fly.y < 15) { state.fly.y = 15; state.flyVel.y = Math.abs(state.flyVel.y) * 0.5; }
+      if (state.fly.y > canvas.height - 15) { state.fly.y = canvas.height - 15; state.flyVel.y = -Math.abs(state.flyVel.y) * 0.5; }
+      const newDist = Math.hypot(state.mouse.x - state.fly.x, state.mouse.y - state.fly.y);
+      let reward;
+      if (newDist < HIT_RADIUS) {
+        reward = -10;
+        const nx = (state.fly.x - state.mouse.x) / newDist;
+        const ny = (state.fly.y - state.mouse.y) / newDist;
+        state.flyVel.x += nx * 8; state.flyVel.y += ny * 8;
+      } else {
+        reward = newDist / 1400;
+      }
+      state.episodeScore += reward;
+      state.lastDist = newDist;
+      state.episodeFrames++;
+      challengerScore += reward;
+      return { dist: newDist, panicking: p >= useModel.threshold };
+    }
+    function endEpisode() {
+      stats.totalTries++;
+      if (challengerScore > lastAcceptedScore) {
+        champion = challenger;
+        lastAcceptedScore = challengerScore;
+        stats.accepts++;
+        stats.generation++;
+        stats.bestScore = Math.max(stats.bestScore, challengerScore);
+        stats.history.push({ gen: stats.generation, score: challengerScore, accepted: true });
+      } else {
+        stats.history.push({ gen: stats.history.length + 1, score: challengerScore, accepted: false });
+      }
+      startNewChallenger();
+      resetFly();
+    }
+    function draw() {
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const dist = Math.hypot(state.mouse.x - state.fly.x, state.mouse.y - state.fly.y);
+      ctx.strokeStyle = dist < HIT_RADIUS ? 'rgba(255,80,80,0.9)' : 'rgba(255,80,80,0.18)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(state.mouse.x, state.mouse.y, HIT_RADIUS, 0, Math.PI*2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,80,80,0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(state.mouse.x - 12, state.mouse.y); ctx.lineTo(state.mouse.x + 12, state.mouse.y);
+      ctx.moveTo(state.mouse.x, state.mouse.y - 12); ctx.lineTo(state.mouse.x, state.mouse.y + 12);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(120,255,120,0.15)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(state.fly.x, state.fly.y); ctx.lineTo(state.mouse.x, state.mouse.y); ctx.stroke();
+      const useModel = challenger || champion;
+      const panicVal = infer(useModel, computeFeatures());
+      const panicking = panicVal >= useModel.threshold;
+      const angle = Math.atan2(state.flyVel.y, state.flyVel.x);
+      ctx.save();
+      ctx.translate(state.fly.x, state.fly.y);
+      ctx.rotate(angle);
+      const flapPhase = state.episodeFrames * 0.6;
+      const wingSpread = panicking ? 0.9 + Math.sin(flapPhase) * 0.5 : 0.5 + Math.sin(flapPhase) * 0.3;
+      ctx.fillStyle = panicking ? '#ff6' : '#eee';
+      ctx.beginPath(); ctx.ellipse(-6, -1, 9 * wingSpread, 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse( 6, -1, 9 * wingSpread, 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = panicking ? '#f55' : '#2a2';
+      ctx.beginPath(); ctx.ellipse(0, 0, 7, 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = panicking ? '#f88' : '#4f4';
+      ctx.beginPath(); ctx.arc(7, 0, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(8, -1, 0.8, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      document.getElementById('state').textContent = panicking ? '逃跑!' : '闲逛';
+      document.getElementById('state').className = panicking ? 'panic' : 'calm';
+      document.getElementById('dist').textContent = dist.toFixed(0);
+      document.getElementById('panic').textContent = panicVal.toFixed(3);
+      document.getElementById('thr').textContent = useModel.threshold.toFixed(3);
+      document.getElementById('gen').textContent = stats.generation;
+      document.getElementById('score').textContent = challengerScore.toFixed(2);
+      document.getElementById('best').textContent = stats.bestScore === -Infinity ? '-INF' : stats.bestScore.toFixed(2);
+      document.getElementById('acc').textContent = stats.accepts + '/' + stats.totalTries;
+      document.getElementById('sigma').textContent = (stats.sigma * Math.pow(0.96, stats.generation)).toFixed(3);
+    }
+    function drawGraph() {
+      const W = graphCanvas.width, H = graphCanvas.height;
+      gctx.fillStyle = '#000'; gctx.fillRect(0, 0, W, H);
+      const hist = stats.history.slice(-80);
+      if (hist.length < 2) return;
+      const scores = hist.map(function(h) { return h.score; });
+      const minS = Math.min.apply(null, scores);
+      const maxS = Math.max.apply(null, scores);
+      const range = Math.max(1, maxS - minS);
+      gctx.strokeStyle = '#0a0'; gctx.lineWidth = 1; gctx.beginPath();
+      hist.forEach(function(h, i) {
+        const x = (i / (hist.length - 1)) * W;
+        const y = H - ((h.score - minS) / range) * (H - 4) - 2;
+        if (i === 0) gctx.moveTo(x, y); else gctx.lineTo(x, y);
+      });
+      gctx.stroke();
+      hist.forEach(function(h, i) {
+        const x = (i / (hist.length - 1)) * W;
+        const y = H - ((h.score - minS) / range) * (H - 4) - 2;
+        gctx.fillStyle = h.accepted ? '#ff0' : '#555';
+        gctx.fillRect(x - 1, y - 1, 2, 2);
+      });
+    }
+    let lastTime = performance.now();
+    function loop(now) {
+      lastTime = now;
+      state.mouseVel.x = state.mouse.x - state.mousePrev.x;
+      state.mouseVel.y = state.mouse.y - state.mousePrev.y;
+      state.mousePrev.x = state.mouse.x; state.mousePrev.y = state.mouse.y;
+      const features = computeFeatures();
+      const panic = { value: 0 };
+      step(features, panic);
+      draw();
+      drawGraph();
+      if (state.episodeFrames >= EPISODE_FRAMES) endEpisode();
+      requestAnimationFrame(loop);
+    }
+    canvas.addEventListener('mousemove', function(e) {
+      const rect = canvas.getBoundingClientRect();
+      state.mouse.x = e.clientX - rect.left; state.mouse.y = e.clientY - rect.top;
+    });
+    canvas.addEventListener('touchmove', function(e) {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const t = e.touches[0];
+      state.mouse.x = t.clientX - rect.left; state.mouse.y = t.clientY - rect.top;
+    }, { passive: false });
+    document.getElementById('btnReset').addEventListener('click', function() {
+      if (confirm('重置脑？所有学习进度会丢失')) initBrain();
+    });
+    document.getElementById('btnSave').addEventListener('click', function() {
+      const data = JSON.stringify({
+        weights: champion.weights, bias: champion.bias, threshold: champion.threshold,
+        generation: stats.generation, bestScore: stats.bestScore,
+        history: stats.history.slice(-200), featureNames: FEATURE_NAMES,
+      }, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'fly-brain-gen' + stats.generation + '.json'; a.click();
+      URL.revokeObjectURL(url);
+    });
+    document.getElementById('btnLoad').addEventListener('click', function() {
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = '.json';
+      inp.onchange = function(e) {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function() {
+          try {
+            const data = JSON.parse(reader.result);
+            champion = { weights: data.weights.slice(0, 12), bias: data.bias, threshold: data.threshold };
+            lastAcceptedScore = data.bestScore != null ? data.bestScore : 0;
+            stats.generation = data.generation || 0;
+            stats.bestScore = data.bestScore != null ? data.bestScore : -Infinity;
+            stats.history = data.history || [];
+            stats.totalTries = data.history ? data.history.length : 0;
+            stats.accepts = data.history ? data.history.filter(function(h){return h.accepted;}).length : 0;
+            challenger = cloneModel(champion);
+            challengerScore = 0;
+            resetFly();
+            alert('脑加载成功: gen ' + stats.generation + ', best ' + (stats.bestScore||0).toFixed(2));
+          } catch (err) { alert('加载失败: ' + err.message); }
+        };
+        reader.readAsText(file);
+      };
+      inp.click();
+    });
+    document.getElementById('inpEpLen').addEventListener('change', function(e) {
+      const v = parseInt(e.target.value);
+      if (v >= 1 && v <= 120) { EPISODE_FRAMES = v * 60; stats.epLen = v; }
+    });
+    document.getElementById('inpSigma').addEventListener('change', function(e) {
+      const v = parseFloat(e.target.value);
+      if (v >= 0.05 && v <= 2) stats.sigma = v;
+    });
+    initBrain();
+    startNewChallenger();
+    requestAnimationFrame(function(t) { lastTime = t; loop(t); });
+    </script>
+    </body>
+    </html>
+    
