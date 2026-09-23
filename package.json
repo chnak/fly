@@ -32,7 +32,8 @@
     "example:full": "node --experimental-strip-types --no-warnings examples/04-createTrainer.ts && node --experimental-strip-types --no-warnings examples/05-game-loop.ts && node --experimental-strip-types --no-warnings examples/06-evolve.ts && node --experimental-strip-types --no-warnings examples/07-train-and-save.ts && node --experimental-strip-types --no-warnings examples/08-eval-readout.ts",
     "example:evolve": "node --experimental-strip-types --no-warnings examples/06-evolve.ts",
     "example:train": "node --experimental-strip-types --no-warnings examples/07-train-and-save.ts",
-    "example:eval": "node --experimental-strip-types --no-warnings examples/08-eval-readout.ts"
+    "example:eval": "node --experimental-strip-types --no-warnings examples/08-eval-readout.ts",
+    "example:crypto": "node --experimental-strip-types --no-warnings examples/09-crypto-trading.ts"
   },
   "keywords": [
     "fly-brain",

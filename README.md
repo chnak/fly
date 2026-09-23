@@ -22,6 +22,7 @@
 14. [调试与常见问题](#14-调试与常见问题)
 15. [API 参考表](#15-api-参考表)
 16. [`fly-fetch` CLI — 下载 fixtures](#16-fly-fetch-cli--下载-fixtures)
+17. [应用方向：自动交易](#17-应用方向自动交易)
 
 ---
 
@@ -759,7 +760,226 @@ npx fly-fetch --check --verbose
 - manifest：`fixtures/checksums.json`（用 `scripts/gen-checksums.cjs` 重新生成）
 
 ---
+    
+    ---
 
-## 许可证
+---
+    
+    ---
+
+## 17. 应用方向：自动交易
+
+果蝇大脑可以当作**时间序列特征提取器**：LIF 仿真器把价格/成交量的原始输入转换成一组非线性脉冲序列（12 维 DN），logistic 读出层再把它们加权求和 → "现在该不该下单"的概率。**这与 Flappy Bird 是同一个机制，只是输入通道换了。**
+
+### 17.1 核心思想
+
+```
+OHLCV K 线
+  ↓ encodeCandle()         ←  类似 FlyEncoder.encode(state)
+6 通道神经刺激
+  ↓ simulator.stimulate()
+1 步 LIF 仿真（166,700 神经元 / 1,300 万突触）
+  ↓ simulator.step()
+脉冲发放 + 12 维 DN 读出
+  ↓ sampleFeatures()       ←  rate + EMA
+12 维特征向量
+  ↓ inferReadout()                 ←  sigmoid(w · z + b)
+概率 p ∈ [0, 1]
+  ↓ trainedFlapRequest()   ←  硬护栏
+BUY / SELL / HOLD
+```
+
+**为什么用脑子，而不是直接 LSTM/Transformer？**
+
+- **可解释**：12 个 DN 有明确语义（目标、迫近、逃避），权重可以直接看（"买盘响应"看哪个神经元贡献最大）
+- **零训练成本**：连接组是**预训练好的**——166k 神经元 + 1.3 亿突触权重从 MaleCNS 直接拿来用，不需要 GPU 训练
+- **6 通道 → 12 维特征的"非线性提纯"**：果蝇脑在视觉领域被进化调了几亿年，对"快速运动 / 迫近 / 上升下降"的特征提取已经有现成解
+- **冷启动友好**：初始 weights=0 也可以先跑，logistic 慢慢学
+
+### 17.2 概念映射：OHLCV → 神经刺激
+
+| 通道       | 果蝇视觉语义                            | 交易语义                                       |
+|------------|------------------------------------------|------------------------------------------------|
+| `LC4`      | 全屏运动 / 接近感                       | 整体波动强度（振幅 / close）                   |
+| `LPLC2`    | 迫近感                                  | 下影线 / 恐慌抛售                              |
+| `LC10a L`  | 左视野运动（向后退 → 上升）              | 负收益 + 放量 → 可能反弹                       |
+| `LC10a R`  | 右视野运动（向前推 → 下降）              | 正收益 + 放量 → 可能见顶                       |
+| `upward`   | 上升运动                                | 价格动量为正                                   |
+| `downward` | 下降运动                                | 价格动量为负                                   |
+
+12 维 DN 读出 → 交易决策：
+
+| DN 群          | 含义                            | 交易信号                                  |
+|----------------|---------------------------------|-------------------------------------------|
+| `TARGET_DN L`  | 瞄准左前方（推进中）            | 趋势确认 / 买入确认                       |
+| `TARGET_DN R`  | 瞄准右前方（后退中）            | 趋势反转 / 卖出确认                       |
+| `LOOM_DN L`    | 迫近左边（紧急）                | 急跌预警 → 立即止损                       |
+| `LOOM_DN R`    | 迫近右边（紧急）                | 急涨预警 → 注意回调                       |
+| `ESCAPE_DN L`  | 整体逃避（低置信）              | 风险信号 → 减仓                           |
+| `ESCAPE_DN R`  | 整体逃避（高置信）              | 强烈风险 → 清仓                           |
+| `DNae002`      | 单 DN                           | 附加信号                                  |
+| `DNg111`       | 单 DN                           | 附加信号                                  |
+| `DNp01`        | **最关键的逃避 DN**             | **最强行动信号**（FlyDecoder 也用它）     |
+
+### 17.3 完整代码示例
+
+> ⚠️ **API 提示**：`fastTrain()` 内部生成的是 Flappy `FlappyState`、调用 `teacher(state, features)`。交易场景的"输入不是鸟"必须绕过它，用 `onlineTrain()` 自己写训练循环（每根 K 线一步在线 SGD）。
+
+```ts
+// examples/09-crypto-trading.ts
+import {
+  createTrainer, inferReadout, onlineTrain,
+  freshModel, modelToJson,
+  type ReadoutModel
+} from '@chnak/fly';
+import { readFile, writeFile } from 'node:fs/promises';
+
+interface Candle {
+  open: number; high: number; low: number; close: number; volume: number;
+}
+
+// ---- 1. OHLCV → 6 通道神经 drive ----
+// 注：simulator.stimulate() 接受 Partial<Record<string, number>>，
+//     通道名是果蝇脑内部名（LC4_L 等），不是 NeuralStimulus 那个 camelCase 包装。
+function encodeCandle(c: Candle, prev: Candle): Record<string, number> {
+  const range  = c.high - c.low;
+  const dnWick = Math.min(c.open, c.close) - c.low;
+  const ret    = (c.close - prev.close) / Math.max(prev.close, 1e-9);
+  const volChg = c.volume / Math.max(prev.volume, 1e-9);
+
+  return {
+    LC4_L:    Math.min(1, range  / Math.max(c.close, 1e-9) * 50),   // 波动强度
+    LPLC2_L:  Math.min(1, dnWick / Math.max(range,  1e-9) * 3),    // 下影 / 恐慌
+    LC10a_L:  Math.min(1, Math.max(0, -ret * 50 + (volChg - 1) * 0.3)),
+    LC10a_R:  Math.min(1, Math.max(0,  ret * 50 + (volChg - 1) * 0.3)),
+    upward:   ret > 0 ? Math.min(1,  ret * 30) : 0,
+    downward: ret < 0 ? Math.min(1, -ret * 30) : 0,
+  };
+}
+
+// ---- 2. 加载 fixtures + 创建训练器 ----
+const manifest = JSON.parse(await readFile('./fixtures/brain.json', 'utf8'));
+const trainer  = await createTrainer({
+  metaPath:     './fixtures/meta.bin',
+  weightsPaths: ['./fixtures/weights.0.bin', './fixtures/weights.1.bin'],
+  manifest,
+  seed: 42,
+});
+
+// ---- 3. 训练（online SGD，每根 K 线一步）----
+// 真实场景里 candles 来自 gate_get_ohlcv_data / csv / binance 等
+const candles: Candle[] = /* ... 1000 根 BTC/USDT 1h ... */ [];
+let model: ReadoutModel = freshModel(trainer.features);
+
+for (let i = 1; i < candles.length - 1; i++) {
+  const drive = encodeCandle(candles[i], candles[i - 1]);
+  // 标签：下根 K 线收涨 → 1，否则 0
+  const label: 0 | 1 = candles[i + 1].close > candles[i].close ? 1 : 0;
+
+  trainer.simulator.stimulate(drive);
+  trainer.simulator.step();
+  const { smoothed } = trainer.simulator.sampleFeatures();
+  model = onlineTrain(trainer.simulator, model, smoothed, label).model;
+}
+
+// 保存训练好的读出
+await writeFile('./fixtures/readout.btc.json', modelToJson(model));
+
+// ---- 4. 推理：每根新 K 线决策 ----
+function onCandle(c: Candle, prev: Candle) {
+  trainer.simulator.stimulate(encodeCandle(c, prev));
+  trainer.simulator.step();
+  const { smoothed } = trainer.simulator.sampleFeatures();
+  const p = inferReadout(smoothed, model);
+
+  // trainedFlapRequest 的精神：只在强信号下出手，中间地带不动
+  const decision: 'BUY' | 'SELL' | 'HOLD' =
+    p >  model.threshold + 0.10 ? 'BUY'  :
+    p <  model.threshold - 0.10 ? 'SELL' :
+                                    'HOLD';
+  return { p, decision };
+}
+```
+
+完整可运行版（含合成 K 线、训练循环、推理 demo、输出保存）见 `examples/09-crypto-trading.ts`。
+
+### 17.4 标签策略（label 函数）
+
+`onlineTrain()` 接收 `(0 | 1)` 标签，标签怎么算完全自定义。常见模式：
+
+| 策略                       | 标签计算                                       |
+|----------------------------|------------------------------------------------|
+| **下一根涨 → 买**          | `candles[i+1].close > candles[i].close ? 1 : 0` |
+| **下一根突破 N% → 买**     | `(candles[i+1].close - candles[i].close) / candles[i].close > 0.005 ? 1 : 0` |
+| **回撤 N% 后反弹 → 买**    | 在回撤序列里检测"已跌 5%+ 然后次日收涨"        |
+| **多信号集成**             | `momentum > 0 && volumeZ > 1.5 && ret > 0 ? 1 : 0` |
+
+> 跟 `fastTrain()` 的 `teacher(state, features)` 不同 — 这里的 label 是普通 JS 表达式，**不接收 FlappyState**。详见 [§9](#9-自定义教师) 了解 `defaultTeacher` 在 Flappy 场景下怎么用。
+
+### 17.5 与 gate.io 现货交易集成
+
+如果你已经在用 `gate-trading` 插件拉数据 + 下单，可以这样接线：
+
+```ts
+import { gate_get_ohlcv_data, gate_create_order } from 'gate-trading';
+
+// 1. 拉 1000 根 1 小时 K 线
+const candles = await gate_get_ohlcv_data({
+  pair: 'BTC_USDT', interval: '1h', limit: 1000
+});
+
+// 2. 直接喂给 §17.3 的训练循环（candles 就是 Candle[]）
+for (let i = 1; i < candles.length - 1; i++) {
+  const drive  = encodeCandle(candles[i], candles[i - 1]);
+  const label  = candles[i + 1].close > candles[i].close ? 1 : 0;
+  trainer.simulator.stimulate(drive);
+  trainer.simulator.step();
+  const { smoothed } = trainer.simulator.sampleFeatures();
+  model = onlineTrain(trainer.simulator, model, smoothed, label).model;
+}
+
+// 3. 实时推理：WebSocket 或轮询新 K 线
+//    决策后调 gate_create_order({ pair, side: 'buy'|'sell', amount })
+```
+
+> 实盘下单涉及仓位管理、滑点、风控等复杂逻辑，**不建议直接照搬示例**。建议先用 paper trading / testnet 跑 3 个月以上（见 [§17.6](#176-风险提示)）。完整端到端（含下单）bot 计划在未来版本提供。
+
+### 17.6 风险提示
+
+⚠️ **这不是投资建议**。以下是这个框架的已知局限：
+
+- **回测必须**：demo 先跑 1 年历史 K 线看夏普 / 最大回撤
+- **滑点与手续费**：训练时 teacher 假设的是"理想成交价"，实盘要减点
+- **过拟合**：120 epoch logistic 在 1000 根 K 线上容易记样本。**用验证集选 threshold**（§7.1 第 8 步已在做）
+- **黑天鹅**：果蝇脑没有"2020-03-12"那种事件的概念 — teacher 没教过的模式它不会识别
+- **不要直接接实盘**：先用 paper trading / testnet 跑 3 个月以上
+- **仓位管理**：单笔不要超过 1-2% 本金，超过会被 LOOM_DN / ESCAPE_DN 的硬护栏拦下但可能太晚
+
+**推荐起点**：先按 [§17.3](#173-完整代码示例) 的代码用 BTC/USDT 1h K 线 demo 跑一周，看 `p` 的分布和决策是否合理，再考虑接实盘。
+
+### 17.7 与 §3 fixtures 的关系
+
+`fly-fetch` CLI 拉的就是这个应用需要的脑：
+
+```bash
+# 拉 fixtures（脑连接组 + 预训练读出）
+npx fly-fetch
+
+# 然后直接用
+pnpm example:crypto    # 或 node examples/09-crypto-trading.ts
+```
+
+### 17.8 下一步可选
+
+| 你想…                                               | 看这里                                              |
+|------------------------------------------------------|------------------------------------------------------|
+| 调映射（OHLCV → 6 通道）                            | `examples/09-crypto-trading.ts` 的 `encodeCandle()`  |
+| 调读出（12 DN → BUY/SELL）                          | `examples/09-crypto-trading.ts` 的 `onCandle()`      |
+| 换市场（外汇 / 期货）                               | 把 `gate_get_ohlcv_data` 换成对应数据源              |
+| 跑多品种（组合 50 个币的脑）                         | 多 `createTrainer` 实例 + 独立 `Simulator`          |
+| 长期进化（脑 + 读出一起调）                         | `examples/06-evolve.ts`                              |
+| 接实盘下单（gate.io / binance）                     | 在 §17.5 基础上加 `gate_create_order`，先 testnet    |
+
+---## 许可证
 
 MIT —— 见 [LICENSE](./LICENSE)。

@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Crypto Fly — 果蝇大脑学炒币</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; font-family: 'Consolas', 'Monaco', monospace; color: #cfc; overflow: hidden; }
+  body { display: flex; }
+  #left  { width: 380px; padding: 12px; box-sizing: border-box; border-right: 1px solid #2a2; overflow-y: auto; }
+  #right { flex: 1; padding: 12px; box-sizing: border-box; overflow-y: auto; }
+  h1 { margin: 0 0 8px 0; font-size: 16px; color: #ff6; }
+  h2 { margin: 12px 0 4px 0; font-size: 12px; color: #6f6; border-bottom: 1px solid #2a2; padding-bottom: 2px; }
+  .row { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; }
+  .v   { color: #ff6; font-weight: bold; }
+  .panel { background: rgba(0,30,0,0.4); border: 1px solid #2a2; border-radius: 4px; padding: 8px; margin-bottom: 10px; }
+  canvas { display: block; background: #000; border: 1px solid #2a2; }
+  #chart { width: 100%; height: 380px; }
+  #pnlChart, #learnChart { width: 100%; height: 120px; margin-top: 4px; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-weight: bold; font-size: 14px; }
+  .BUY  { background: #052; color: #5f5; border: 1px solid #2a2; }
+  .SELL { background: #502; color: #f55; border: 1px solid #a22; }
+  .HOLD { background: #222; color: #aaa; border: 1px solid #444; }
+  .pos-flat { color: #888; }
+  .pos-long { color: #5f5; }
+  .pnl-pos { color: #5f5; }
+  .pnl-neg { color: #f55; }
+  .mode-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; margin-left: 6px; vertical-align: middle; }
+  .mode-LIVE     { background: #052; color: #5f5; border: 1px solid #2a2; }
+  .mode-BACKTEST { background: #224; color: #88f; border: 1px solid #448; }
+  #progressBar { background: #222; height: 14px; border-radius: 2px; overflow: hidden; margin: 4px 0; position: relative; border: 1px solid #444; }
+  #progressFill { background: linear-gradient(90deg, #6cf, #ff6, #5f5); height: 100%; width: 0%; transition: width 60ms linear; }
+  #progressText { position: absolute; top: 0; left: 0; right: 0; text-align: center; font-size: 10px; line-height: 14px; color: #fff; text-shadow: 0 0 2px #000; }
+  .backtest-only { display: none; }
+  body.bt-mode .backtest-only { display: block; }
+  body.bt-mode input.backtest-only,
+  body.bt-mode button.backtest-only { display: inline-block; }
+  body.bt-mode .bt-row { display: flex; }
+  body.bt-mode .bt-row.backtest-only { display: flex; }
+  #dateInput { background: #030; color: #cfc; border: 1px solid #2a2; padding: 3px 6px; font-family: inherit; font-size: 11px; margin: 1px; width: 105px; }
+  #summaryTable { width: 100%; font-size: 11px; border-collapse: collapse; }
+  #summaryTable td { padding: 3px 6px; border-bottom: 1px dotted #2a2; }
+  #summaryTable td:first-child { color: #888; }
+  #summaryTable td:last-child  { color: #ff6; text-align: right; font-weight: bold; }
+  button { background: #030; color: #cfc; border: 1px solid #2a2; padding: 4px 10px; margin: 2px; cursor: pointer; font-family: inherit; font-size: 12px; }
+  button:hover { background: #050; }
+  .feat-bar { display: grid; grid-template-columns: 110px 1fr 40px; align-items: center; font-size: 10px; gap: 4px; margin: 1px 0; }
+  .feat-bar .name { color: #aaa; }
+  .feat-bar .bar { background: #222; height: 12px; position: relative; border-radius: 2px; }
+  .feat-bar .fill { background: linear-gradient(90deg, #6cf, #ff6); height: 100%; border-radius: 2px; transition: width 80ms linear; }
+  .feat-bar .v { color: #ff6; text-align: right; font-family: monospace; }
+  #trades { font-size: 11px; max-height: 160px; overflow-y: auto; }
+  #trades div { padding: 1px 0; border-bottom: 1px dotted #222; }
+  #help { font-size: 11px; color: #888; line-height: 1.5; padding: 6px; background: rgba(255,255,255,0.03); border-radius: 4px; }
+  #help b { color: #ff6; }
+</style>
+</head>
+<body>
+
+<div id="left">
+  <h1>🐛 Crypto Fly <span id="phase" style="font-size:11px;color:#aaa;">[warmup]</span><span id="modeBadge" class="mode-badge mode-LIVE">LIVE</span></h1>
+  <div class="panel" style="font-size: 11px;">
+    <div class="row"><span>数据源</span><span class="v" id="pair">-</span></div>
+    <div class="row"><span>周期</span><span class="v" id="interval">-</span></div>
+    <div class="row"><span>最新 K 线</span><span class="v" id="lastTs">-</span></div>
+    <div class="row"><span>实时蜡烛数</span><span class="v" id="liveCount">0</span></div>
+    <div class="row"><span>下次评估倒计时</span><span class="v"><span id="nextEvalIn">-</span> 根</span></div>
+    <div class="row"><span>价格</span><span class="v" id="price">-</span></div>
+    <div class="row"><span>本根涨跌</span><span class="v" id="ret">-</span></div>
+    <div class="row"><span>p (sigmoid)</span><span class="v" id="p">-</span></div>
+  </div>
+
+  <div class="panel">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span style="font-size:11px; color:#aaa;">决策</span>
+      <span class="badge HOLD" id="decision">HOLD</span>
+    </div>
+    <div class="row" style="margin-top:6px;"><span>仓位</span><span id="pos">空仓</span></div>
+    <div class="row"><span>入场价</span><span class="v" id="entry">-</span></div>
+    <div class="row"><span>未实现盈亏</span><span class="v" id="unrealized">-</span></div>
+  </div>
+
+  <div class="panel backtest-only" id="panelBacktest">
+    <h2 style="margin-top:0;">📊 Backtest 进度</h2>
+    <div id="progressBar"><div id="progressFill"></div><div id="progressText">— / —</div></div>
+    <div class="row"><span>区间</span><span class="v" id="btRange">-</span></div>
+    <div class="row"><span>速度</span><span class="v" id="btSpeed">-</span></div>
+    <div class="row"><span>已用时</span><span class="v" id="btElapsed">-</span></div>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0;">📈 实时 P&L（live 阶段累计）</h2>
+    <div style="font-size: 24px; text-align: center;" class="v" id="pnlBig">$0</div>
+    <div class="row"><span>预热训练 best</span><span class="v" id="warmupPnl">$0</span></div>
+    <div class="row"><span>历史最佳</span><span class="v" id="bestPnl">$0</span></div>
+    <div class="row"><span>本代 gen</span><span class="v" id="gen">0</span></div>
+    <div class="row"><span>扰动 σ</span><span class="v" id="sigma">0.500</span></div>
+    <div class="row"><span>接受 / 总尝试</span><span class="v"><span id="accepts">0</span>/<span id="tries">0</span> (<span id="accRate">0%</span>)</span></div>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0;">🧠 12 个 DN 神经元的活动</h2>
+    <div id="features"></div>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0;">⚖️ 模型权重</h2>
+    <div id="weights"></div>
+  </div>
+
+  <div style="margin-top: 8px;">
+    <button id="btnPause">⏸ 暂停</button>
+    <button id="btnReset">🔄 重置脑</button>
+    <button id="btnStart">▶ 继续</button>
+  </div>
+
+  <div class="panel backtest-only" style="margin-top: 10px;">
+    <h2 style="margin-top:0;">🔁 切换 Backtest 区间</h2>
+    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">填 YYYY-MM-DD，留空 = 默认</div>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 2px;">
+      <input id="dateSince" placeholder="since (YYYY-MM-DD)" class="backtest-only">
+      <input id="dateUntil" placeholder="until (YYYY-MM-DD)" class="backtest-only">
+      <button id="btnBacktestReload" style="background:#224;color:#88f;border-color:#448;">🚀 重跑</button>
+      <button id="btnBacktestStop" style="background:#522;color:#f88;border-color:#a44;">⏹ 停止</button>
+    </div>
+    <div id="backtestMsg" style="font-size:10px;color:#aaa;margin-top:4px;"></div>
+  </div>
+
+  <div class="panel backtest-only" id="panelSummary" style="display:none;">
+    <h2 style="margin-top:0;">🏁 Backtest 总结</h2>
+    <table id="summaryTable">
+      <tr><td>总 candle</td><td id="sumCandles">-</td></tr>
+      <tr><td>耗时</td><td id="sumElapsed">-</td></tr>
+      <tr><td>速度</td><td id="sumSpeed">-</td></tr>
+      <tr><td>总 P&L</td><td id="sumPnl">-</td></tr>
+      <tr><td>交易次数</td><td id="sumTrades">-</td></tr>
+      <tr><td>胜率</td><td id="sumWinRate">-</td></tr>
+      <tr><td>Hill Climbing 代数</td><td id="sumGens">-</td></tr>
+      <tr><td>接受率</td><td id="sumAccept">-</td></tr>
+    </table>
+  </div>
+</div>
+
+<div id="right">
+  <div class="panel">
+    <h2 style="margin-top:0;">🕯️ K 线 + 🪰 果蝇（位置 = brain features）</h2>
+    <canvas id="chart" width="1000" height="380"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0;">📈 累计 P&L 曲线</h2>
+    <canvas id="pnlChart" width="1000" height="120"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0;">🎓 学习曲线（每代得分）</h2>
+    <canvas id="learnChart" width="1000" height="120"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0;">💱 交易历史（最近 10 笔）</h2>
+    <div id="trades"></div>
+  </div>
+
+  <div id="help">
+    <b>这是什么？</b><br>
+    一只果蝇的大脑正在用 <b>1+1-ES Hill Climbing</b> 自学炒 BTC：
+    <ul style="margin:4px 0; padding-left:18px;">
+      <li>每根 K 线 → 大脑读出 12 个 DN 神经元活动 → sigmoid → BUY/SELL/HOLD</li>
+      <li>每 30 根 K 线评估一个 challenger（weights + 高斯噪声）</li>
+      <li>最近 30 根 P&L 比 champion 高 → 接受 / 否则拒绝</li>
+      <li>σ = 0.5 × 0.96<sup>gen</sup>：越学越精细</li>
+    </ul>
+    <b>怎么读图：</b><br>
+    • K 线上方的 🪰 苍蝇 = brain features 的"重心"（12 维 → 2 维 PCA 简化为 xy）<br>
+    • 🟢 BUY / 🔴 SELL / ⚪ HOLD<br>
+    • 接受率越高、bestPnl 越大 = 学得越好<br>
+    <b>实时模式：</b> 启动时拉 1000 根历史 1m K 线 → 预热训练 100 代 → 每 10s 轮询 Gate.io 拉新 K 线 → 真实决策 → 每 30 根新 K 线评估一次 challenger。<br>
+<b>已知局限：</b> BTC 1m 噪声巨大，期望实时 P&L 在 ±$500 内浮动属正常，不代表 bug。要看真实盈利能力请观察 30 分钟以上。
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ---------- DOM 引用 ----------
+const $ = id => document.getElementById(id);
+const dom = {
+  pair: $('pair'), interval: $('interval'),
+  modeBadge: $('modeBadge'),
+  phase: $('phase'), lastTs: $('lastTs'),
+  liveCount: $('liveCount'), nextEvalIn: $('nextEvalIn'),
+  price: $('price'), ret: $('ret'), p: $('p'),
+  decision: $('decision'), pos: $('pos'), entry: $('entry'), unrealized: $('unrealized'),
+  pnlBig: $('pnlBig'), warmupPnl: $('warmupPnl'), bestPnl: $('bestPnl'),
+  gen: $('gen'), sigma: $('sigma'),
+  accepts: $('accepts'), tries: $('tries'), accRate: $('accRate'),
+  features: $('features'), weights: $('weights'),
+  trades: $('trades'),
+  btnPause: $('btnPause'), btnReset: $('btnReset'), btnStart: $('btnStart'),
+  // backtest
+  progressBar: $('progressBar'), progressFill: $('progressFill'), progressText: $('progressText'),
+  btRange: $('btRange'), btSpeed: $('btSpeed'), btElapsed: $('btElapsed'),
+  dateSince: $('dateSince'), dateUntil: $('dateUntil'),
+  btnBacktestReload: $('btnBacktestReload'), btnBacktestStop: $('btnBacktestStop'),
+  backtestMsg: $('backtestMsg'),
+  panelSummary: $('panelSummary'),
+  sumCandles: $('sumCandles'), sumElapsed: $('sumElapsed'), sumSpeed: $('sumSpeed'),
+  sumPnl: $('sumPnl'), sumTrades: $('sumTrades'), sumWinRate: $('sumWinRate'),
+  sumGens: $('sumGens'), sumAccept: $('sumAccept'),
+};
+const chart    = $('chart').getContext('2d');
+const pnlChart = $('pnlChart').getContext('2d');
+const learnChart = $('learnChart').getContext('2d');
+
+// ---------- 初始化 12 个 feature bar ----------
+const FEATURE_NAMES = [
+  'TARGET_DN L','TARGET_DN R',
+  'LOOM_DN L','LOOM_DN R',
+  'ESCAPE_DN L','ESCAPE_DN R',
+  'DNae002 L','DNae002 R',
+  'DNg111 L','DNg111 R',
+  'DNp01 L','DNp01 R',
+];
+const featBars = [];
+FEATURE_NAMES.forEach((n, i) => {
+  const row = document.createElement('div');
+  row.className = 'feat-bar';
+  row.innerHTML = `<div class="name">${n}</div><div class="bar"><div class="fill" id="fb${i}"></div></div><div class="v" id="fv${i}">0.00</div>`;
+  dom.features.appendChild(row);
+  featBars.push({ fill: $('fb'+i), v: $('fv'+i) });
+});
+
+// ---------- 权重条形图 ----------
+const weightBars = [];
+FEATURE_NAMES.forEach((n, i) => {
+  const row = document.createElement('div');
+  row.className = 'feat-bar';
+  row.innerHTML = `<div class="name" style="color:#6f6;">${n}</div><div class="bar"><div class="fill" id="wb${i}" style="background:linear-gradient(90deg,#f55,#5f5,#ff6); transform-origin: left;"></div></div><div class="v" id="wv${i}">+0.00</div>`;
+  dom.weights.appendChild(row);
+  weightBars.push({ fill: $('wb'+i), v: $('wv'+i) });
+});
+
+// ---------- 全局状态 ----------
+let candles = [];
+let candleFrom = 0;
+let state = null;
+let lastPnlTrace = [];
+let lastUpdate = 0;
+
+// ---------- 轮询 ----------
+async function fetchState() {
+  const r = await fetch('/api/state');
+  state = await r.json();
+}
+async function fetchCandles() {
+  const r = await fetch('/api/candles');
+  const j = await r.json();
+  candles = j.candles;
+  candleFrom = j.from;
+}
+
+async function tick() {
+  await fetchState();
+  if (candles.length === 0) await fetchCandles();
+  await fetchCandles();
+  drawAll();
+}
+
+setInterval(tick, 200);
+
+// ---------- 绘图 ----------
+function fmtUSD(n) {
+  const sign = n >= 0 ? '+' : '-';
+  return sign + '$' + Math.abs(n).toFixed(0);
+}
+function fmtPct(n) {
+  const sign = n >= 0 ? '+' : '';
+  return sign + (n * 100).toFixed(2) + '%';
+}
+
+function drawChart() {
+  const c = $('chart');
+  const W = c.width, H = c.height;
+  chart.clearRect(0, 0, W, H);
+
+  if (candles.length === 0) return;
+
+  // 价格范围
+  let pMin = Infinity, pMax = -Infinity;
+  for (const k of candles) {
+    if (k.low < pMin)  pMin = k.low;
+    if (k.high > pMax) pMax = k.high;
+  }
+  const pad = (pMax - pMin) * 0.05;
+  pMin -= pad; pMax += pad;
+
+  // 蜡烛宽度
+  const N = candles.length;
+  const cw = Math.max(2, Math.floor(W / N) - 1);
+  const ch = H - 30;
+
+  const yOf = p => 20 + ch - (p - pMin) / (pMax - pMin) * ch;
+
+  // 网格
+  chart.strokeStyle = '#222';
+  chart.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = 20 + ch * i / 4;
+    chart.beginPath(); chart.moveTo(0, y); chart.lineTo(W, y); chart.stroke();
+    const p = pMin + (pMax - pMin) * (4 - i) / 4;
+    chart.fillStyle = '#666'; chart.font = '10px monospace';
+    chart.fillText('$' + p.toFixed(0), 4, y - 2);
+  }
+
+  // 蜡烛
+  for (let i = 0; i < N; i++) {
+    const k = candles[i];
+    const x = i * (cw + 1);
+    const isUp = k.close >= k.open;
+    chart.strokeStyle = isUp ? '#5f5' : '#f55';
+    chart.fillStyle   = isUp ? '#0a0' : '#a00';
+
+    // wick
+    chart.beginPath();
+    chart.moveTo(x + cw / 2, yOf(k.high));
+    chart.lineTo(x + cw / 2, yOf(k.low));
+    chart.stroke();
+
+    // body
+    const y1 = yOf(Math.max(k.open, k.close));
+    const y2 = yOf(Math.min(k.open, k.close));
+    chart.fillRect(x, y1, cw, Math.max(1, y2 - y1));
+  }
+
+  // 当前 candle 高亮
+  const curIdx = state.idx - candleFrom;
+  if (curIdx >= 0 && curIdx < N) {
+    const x = curIdx * (cw + 1);
+    chart.strokeStyle = '#ff6';
+    chart.lineWidth = 2;
+    chart.strokeRect(x - 1, 20, cw + 2, ch);
+  }
+
+  // 🪰 苍蝇位置：12 features → 2D (用 L/R 加权求和模拟"水平位置"和"垂直位置")
+  const f = state.features || new Array(12).fill(0);
+  let leftEnergy = 0, rightEnergy = 0, topEnergy = 0, botEnergy = 0;
+  // L/R 加权
+  for (let i = 0; i < 12; i += 2) {
+    leftEnergy  += f[i];
+    rightEnergy += f[i+1];
+  }
+  // 上/下 用 LC4(0-1) vs LPLC2(2-3) 简单划分
+  topEnergy = (f[0] + f[2] + f[4]) / 3;
+  botEnergy = (f[6] + f[8] + f[10]) / 11 * 11 / 3;
+
+  const fx = (rightEnergy - leftEnergy) * 0.5 + 0.5;  // 0..1
+  const fy = (topEnergy - botEnergy) * 0.5 + 0.5;
+
+  const flyX = fx * W;
+  const flyY = fy * (ch) + 20;
+
+  // 画苍蝇（emoji 不行用十字）
+  chart.fillStyle = '#ff6';
+  chart.beginPath(); chart.arc(flyX, flyY, 7, 0, Math.PI * 2); chart.fill();
+  chart.strokeStyle = '#000';
+  chart.lineWidth = 2;
+  chart.beginPath();
+  chart.moveTo(flyX - 12, flyY); chart.lineTo(flyX + 12, flyY);
+  chart.moveTo(flyX, flyY - 12); chart.lineTo(flyX, flyY + 12);
+  chart.stroke();
+  chart.fillStyle = '#000';
+  chart.font = 'bold 10px monospace';
+  chart.fillText('FLY', flyX - 12, flyY + 3);
+
+  // 标题
+  chart.fillStyle = '#ff6'; chart.font = 'bold 12px monospace';
+  chart.fillText(`${state.pair} ${state.interval}  idx=${state.idx}/${state.candles}  close=$${state && candles[curIdx] ? candles[curIdx].close.toFixed(0) : '-'}`, 8, H - 6);
+}
+
+function drawPnlChart() {
+  const c = $('pnlChart');
+  const W = c.width, H = c.height;
+  pnlChart.clearRect(0, 0, W, H);
+
+  // 用 trades 累积 P&L
+  const points = [{ idx: 0, pnl: 0 }];
+  let cum = 0;
+  for (const t of state.trades) {
+    if (t.action === 'SELL' && typeof t.profit === 'number') {
+      cum += t.profit;
+      points.push({ idx: t.idx, pnl: cum });
+    }
+  }
+  // 加上当前未实现（如果持仓）
+  if (state.position === 1 && state.entryPrice && candles.length > 0) {
+    const lastClose = candles[Math.min(candles.length - 1, state.idx - candleFrom)]?.close ?? state.entryPrice;
+    points.push({ idx: state.idx, pnl: cum + (lastClose - state.entryPrice) });
+  }
+
+  if (points.length < 2) {
+    pnlChart.fillStyle = '#666'; pnlChart.font = '12px monospace';
+    pnlChart.fillText('等待交易...', 10, H / 2);
+    return;
+  }
+
+  const xMin = 0, xMax = state.candles;
+  let yMin = 0, yMax = 0;
+  for (const p of points) { yMin = Math.min(yMin, p.pnl); yMax = Math.max(yMax, p.pnl); }
+  const yRange = Math.max(100, yMax - yMin) * 1.2;
+  const yMid = (yMax + yMin) / 2;
+  yMin = yMid - yRange / 2; yMax = yMid + yRange / 2;
+
+  const xOf = i => (i - xMin) / (xMax - xMin) * W;
+  const yOf = v => H - (v - yMin) / (yMax - yMin) * (H - 20) - 10;
+
+  // 网格 + 0 线
+  pnlChart.strokeStyle = '#222'; pnlChart.lineWidth = 1;
+  pnlChart.beginPath();
+  pnlChart.moveTo(0, yOf(0)); pnlChart.lineTo(W, yOf(0));
+  pnlChart.stroke();
+  pnlChart.fillStyle = '#888'; pnlChart.font = '10px monospace';
+  pnlChart.fillText(`+$${(yMax).toFixed(0)}`, 4, 12);
+  pnlChart.fillText(` $${(yMin).toFixed(0)}`, 4, H - 4);
+
+  // 曲线
+  pnlChart.strokeStyle = '#ff6'; pnlChart.lineWidth = 2;
+  pnlChart.beginPath();
+  pnlChart.moveTo(xOf(points[0].idx), yOf(points[0].pnl));
+  for (const p of points) pnlChart.lineTo(xOf(p.idx), yOf(p.pnl));
+  pnlChart.stroke();
+
+  // 当前点
+  const last = points[points.length - 1];
+  pnlChart.fillStyle = last.pnl >= 0 ? '#5f5' : '#f55';
+  pnlChart.beginPath(); pnlChart.arc(xOf(last.idx), yOf(last.pnl), 5, 0, Math.PI * 2); pnlChart.fill();
+}
+
+function drawLearnChart() {
+  const c = $('learnChart');
+  const W = c.width, H = c.height;
+  learnChart.clearRect(0, 0, W, H);
+
+  const hist = state.history || [];
+  if (hist.length < 1) {
+    learnChart.fillStyle = '#666'; learnChart.font = '12px monospace';
+    learnChart.fillText('等待 challenger 评估...', 10, H / 2);
+    return;
+  }
+
+  // x: gen, y: score (P&L of last 30 candles)
+  let yMin = 0, yMax = 0;
+  for (const h of hist) { yMin = Math.min(yMin, h.score); yMax = Math.max(yMax, h.score); }
+  const yRange = Math.max(100, yMax - yMin) * 1.2;
+  const yMid = (yMax + yMin) / 2;
+  yMin = yMid - yRange / 2; yMax = yMid + yRange / 2;
+  const xMax = Math.max(state.gen, hist.length);
+
+  const xOf = g => g / xMax * W;
+  const yOf = v => H - (v - yMin) / (yMax - yMin) * (H - 20) - 10;
+
+  // 网格
+  learnChart.strokeStyle = '#222'; learnChart.lineWidth = 1;
+  learnChart.beginPath();
+  learnChart.moveTo(0, yOf(0)); learnChart.lineTo(W, yOf(0));
+  learnChart.stroke();
+
+  // 接受 (绿) / 拒绝 (红)
+  for (let i = 0; i < hist.length; i++) {
+    const h = hist[i];
+    learnChart.fillStyle = h.accepted ? '#5f5' : '#a55';
+    learnChart.beginPath();
+    learnChart.arc(xOf(h.gen), yOf(h.score), 4, 0, Math.PI * 2);
+    learnChart.fill();
+  }
+
+  // bestPnl 折线
+  let best = -Infinity;
+  const bestLine = [];
+  for (const h of hist) {
+    if (h.accepted) { best = Math.max(best, h.score); }
+    bestLine.push({ gen: h.gen, v: best === -Infinity ? 0 : best });
+  }
+  if (bestLine.length > 1) {
+    learnChart.strokeStyle = '#ff6'; learnChart.lineWidth = 2;
+    learnChart.beginPath();
+    learnChart.moveTo(xOf(bestLine[0].gen), yOf(bestLine[0].v));
+    for (const p of bestLine) learnChart.lineTo(xOf(p.gen), yOf(p.v));
+    learnChart.stroke();
+  }
+}
+
+function drawTrades() {
+  const trades = state.trades.slice(-10).reverse();
+  if (trades.length === 0) {
+    dom.trades.innerHTML = '<div style="color:#666;">尚未交易</div>';
+    return;
+  }
+  const rows = trades.map(t => {
+    const dt = new Date(t.ts * 1000);
+    const time = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:00`;
+    if (t.action === 'BUY') {
+      return `<div><span style="color:#5f5">▶ BUY </span> @ $${t.price.toFixed(0)} (${time})</div>`;
+    } else {
+      const cls = t.profit >= 0 ? 'pnl-pos' : 'pnl-neg';
+      return `<div><span style="color:#f55">◀ SELL</span> @ $${t.price.toFixed(0)} (${time})  <span class="${cls}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(0)}</span></div>`;
+    }
+  });
+  dom.trades.innerHTML = rows.join('');
+}
+
+function drawAll() {
+  if (!state) return;
+
+  // HUD
+  dom.pair.textContent = state.pair;
+  dom.interval.textContent = state.interval;
+  dom.phase.textContent = '[' + (state.phase || 'warmup') + ']';
+  dom.phase.style.color = state.phase === 'live' ? '#5f5' : '#aaa';
+  if (state.lastNewCandleTs) {
+    const dt = new Date(state.lastNewCandleTs * 1000);
+    dom.lastTs.textContent = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+  }
+  dom.liveCount.textContent = state.liveCount || 0;
+  // 下次评估倒计时：localStorage 没法跨页面，但启动时 window.LIVE_EVAL_EVERY_N 被注入即可
+  const nextIn = Math.max(0, (state.liveEvalEveryN || 30) - (state.liveCandlesSinceEval || 0));
+  dom.nextEvalIn.textContent = nextIn;
+  dom.nextEvalIn.style.color = nextIn === 0 ? '#ff6' : '#cfc';
+  const curIdx = state.idx - candleFrom;
+  const curCandle = candles[curIdx] || candles[candles.length - 1];
+  if (curCandle) {
+    dom.price.textContent = '$' + curCandle.close.toFixed(0);
+    const prev = candles[curIdx - 1];
+    if (prev) {
+      const ret = (curCandle.close - prev.close) / prev.close;
+      dom.ret.textContent = fmtPct(ret);
+      dom.ret.style.color = ret >= 0 ? '#5f5' : '#f55';
+    }
+  }
+  dom.p.textContent = state.recentP.toFixed(3);
+  dom.p.style.color = state.recentP > 0.5 ? '#5f5' : '#f55';
+
+  // Decision badge
+  dom.decision.textContent = state.recentDecision;
+  dom.decision.className = 'badge ' + state.recentDecision;
+
+  // Position
+  if (state.position === 1) {
+    dom.pos.innerHTML = '<span class="pos-long">满仓 LONG</span>';
+    dom.entry.textContent = '$' + state.entryPrice.toFixed(0);
+    if (curCandle) {
+      const unreal = curCandle.close - state.entryPrice;
+      dom.unrealized.textContent = fmtUSD(unreal);
+      dom.unrealized.style.color = unreal >= 0 ? '#5f5' : '#f55';
+    }
+  } else {
+    dom.pos.innerHTML = '<span class="pos-flat">空仓</span>';
+    dom.entry.textContent = '-';
+    dom.unrealized.textContent = '-';
+  }
+
+  // P&L
+  const pnlClass = state.pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+  dom.pnlBig.className = 'v ' + pnlClass;
+  dom.pnlBig.textContent = fmtUSD(state.pnl);
+  dom.warmupPnl.textContent = fmtUSD(state.warmupPnl || 0);
+  dom.bestPnl.textContent = fmtUSD(state.bestPnl);
+  dom.gen.textContent = state.gen;
+  dom.sigma.textContent = state.sigma.toFixed(3);
+  dom.accepts.textContent = state.accepts;
+  dom.tries.textContent = state.totalTries;
+  dom.accRate.textContent = state.totalTries > 0 ? Math.round(state.accepts / state.totalTries * 100) + '%' : '0%';
+
+  // Features
+  for (let i = 0; i < 12; i++) {
+    const v = state.features[i] || 0;
+    featBars[i].fill.style.width = Math.min(100, v * 100).toFixed(1) + '%';
+    featBars[i].v.textContent = v.toFixed(2);
+  }
+
+  // Weights
+  const w = state.model.weights;
+  const wMin = Math.min(...w);
+  const wMax = Math.max(...w);
+  const wAbsMax = Math.max(Math.abs(wMin), Math.abs(wMax), 0.01);
+  for (let i = 0; i < 12; i++) {
+    const v = w[i];
+    // map [-wAbsMax, wAbsMax] → [0, 100%], center at 50%
+    const pct = ((v + wAbsMax) / (2 * wAbsMax)) * 100;
+    weightBars[i].fill.style.width = pct.toFixed(1) + '%';
+    weightBars[i].v.textContent = (v >= 0 ? '+' : '') + v.toFixed(3);
+    weightBars[i].v.style.color = v >= 0 ? '#5f5' : '#f55';
+  }
+
+  drawChart();
+  drawPnlChart();
+  drawLearnChart();
+  drawTrades();
+
+  // ---------- Backtest 面板 ----------
+  const bt = state.backtest || {};
+  if (state.mode === 'backtest') {
+    document.body.classList.add('bt-mode');
+    dom.modeBadge.textContent = 'BACKTEST';
+    dom.modeBadge.className = 'mode-badge mode-BACKTEST';
+  } else {
+    document.body.classList.remove('bt-mode');
+    dom.modeBadge.textContent = 'LIVE';
+    dom.modeBadge.className = 'mode-badge mode-LIVE';
+  }
+  if (state.mode === 'backtest' && bt.range) {
+    const fmtD = ts => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+    dom.btRange.textContent = `${fmtD(bt.range.since)} → ${fmtD(bt.range.until)}`;
+    const progress = Math.min(1, bt.progress || 0);
+    dom.progressFill.style.width = (progress * 100).toFixed(1) + '%';
+    const elapsed = bt.startedAt ? ((bt.finishedAt || Date.now()) - bt.startedAt) / 1000 : 0;
+    dom.btElapsed.textContent = elapsed.toFixed(1) + 's';
+    const speed = bt.active ? (state.idx - (bt.startIdx || 1)) / Math.max(0.001, elapsed) : (bt.candlesPerSec || 0);
+    dom.btSpeed.textContent = `${speed.toFixed(0)} c/s (${bt.speed || 'normal'})`;
+    dom.progressText.textContent = `${state.idx} / ${state.candles} (${(progress*100).toFixed(1)}%)`;
+    // Summary 卡（只跑完后显示）
+    if (bt.done) {
+      dom.panelSummary.style.display = 'block';
+      const elapsed2 = (bt.finishedAt - bt.startedAt) / 1000;
+      dom.sumCandles.textContent = state.idx - (bt.startIdx || 1);
+      dom.sumElapsed.textContent = elapsed2.toFixed(2) + 's';
+      dom.sumSpeed.textContent = `${bt.candlesPerSec.toFixed(0)} c/s`;
+      dom.sumPnl.textContent = fmtUSD(state.pnl);
+      dom.sumPnl.className = state.pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+      const tr = state.trades || [];
+      const closed = tr.filter(t => t.action === 'SELL');
+      const wins = closed.filter(t => (t.profit || 0) > 0);
+      dom.sumTrades.textContent = closed.length + ' 笔 (开仓 ' + tr.filter(t=>t.action==='BUY').length + ')';
+      dom.sumWinRate.textContent = closed.length > 0 ? (wins.length/closed.length*100).toFixed(1) + '%' : '-';
+      dom.sumGens.textContent = state.gen;
+      const acc = state.totalTries > 0 ? (state.accepts / state.totalTries * 100).toFixed(1) + '%' : '-';
+      dom.sumAccept.textContent = `${state.accepts}/${state.totalTries} (${acc})`;
+    } else {
+      dom.panelSummary.style.display = 'none';
+    }
+  }
+}
+
+// ---------- 按钮 ----------
+dom.btnPause.onclick = async () => { await fetch('/api/pause', {method:'POST'}); };
+dom.btnStart.onclick = async () => { await fetch('/api/start', {method:'POST'}); };
+dom.btnReset.onclick = async () => { await fetch('/api/reset', {method:'POST'}); };
+dom.btnBacktestReload.onclick = async () => {
+  const body = { since: dom.dateSince.value.trim() || undefined, until: dom.dateUntil.value.trim() || undefined };
+  dom.backtestMsg.textContent = '⏳ 拉取数据中...';
+  dom.btnBacktestReload.disabled = true;
+  try {
+    const r = await fetch('/api/backtest', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (j.ok) dom.backtestMsg.textContent = `✅ 加载 ${j.candles} 根 candle，重新跑 backtest`;
+    else dom.backtestMsg.textContent = '❌ ' + j.error;
+  } catch (e) {
+    dom.backtestMsg.textContent = '❌ ' + e.message;
+  } finally {
+    dom.btnBacktestReload.disabled = false;
+    setTimeout(() => dom.backtestMsg.textContent = '', 5000);
+  }
+};
+dom.btnBacktestStop.onclick = async () => {
+  await fetch('/api/backtest/stop', {method:'POST'});
+  dom.backtestMsg.textContent = '⏹ 已停止';
+  setTimeout(() => dom.backtestMsg.textContent = '', 3000);
+};
+
+// 启动
+tick();
+</script>
+</body>
+</html>
